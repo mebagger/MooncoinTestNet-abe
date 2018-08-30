@@ -1089,9 +1089,8 @@ store._ddl['txout_approx'],
         if chain is not None:
             # Verify Merkle root.
             if b['hashMerkleRoot'] != chain.merkle_root(tx_hash_array):
-                # Do not raise for now.
-                print "Merkle Root invalid (possibly due to segwit)"
-                #raise MerkleRootMismatch(b['hash'], tx_hash_array)
+                #print "Merkle Root invalid (possibly due to segwit)"
+                raise MerkleRootMismatch(b['hash'], tx_hash_array)
 
         # Look for the parent block.
         hashPrev = b['hashPrev']
