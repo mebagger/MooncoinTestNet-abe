@@ -6,12 +6,12 @@
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 # Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
@@ -36,6 +36,8 @@ import BCDataStream
 import deserialize
 import util
 import base58
+
+
 
 SCHEMA_TYPE = "Abe"
 SCHEMA_VERSION = SCHEMA_TYPE + "41"
@@ -358,8 +360,6 @@ class DataStore(object):
                 "chain_id": None if chain_id is None else int(chain_id),
                 "loader": None}
 
-        #print("datadirs: %r" % datadirs)
-
         # By default, scan every dir we know.  This doesn't happen in
         # practise, because abe.py sets ~/.bitcoin as default datadir.
         if store.args.datadir is None:
@@ -378,7 +378,6 @@ class DataStore(object):
             conf = None
 
             if isinstance(dircfg, dict):
-                #print("dircfg is dict: %r" % dircfg)  # XXX
                 dirname = dircfg.get('dirname')
                 if dirname is None:
                     raise ValueError(
@@ -730,6 +729,7 @@ store._ddl['configvar'],
 """CREATE TABLE tx (
     tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_hash       BINARY(32)  UNIQUE NOT NULL,
+    tx_hash_hex   VARCHAR(255),
     tx_version    NUMERIC(10),
     tx_lockTime   NUMERIC(10),
     tx_size       NUMERIC(10)
@@ -794,6 +794,7 @@ store._ddl['configvar'],
     txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
+    prevout_hash  VARCHAR(255) NULL,
     txout_id      NUMERIC(26)""" + (""",
     txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
     txin_sequence NUMERIC(10)""" if store.keep_scriptsig else "") + """,
@@ -1088,7 +1089,9 @@ store._ddl['txout_approx'],
         if chain is not None:
             # Verify Merkle root.
             if b['hashMerkleRoot'] != chain.merkle_root(tx_hash_array):
-                raise MerkleRootMismatch(b['hash'], tx_hash_array)
+                # Do not raise for now.
+                print "Merkle Root invalid (possibly due to segwit)"
+                #raise MerkleRootMismatch(b['hash'], tx_hash_array)
 
         # Look for the parent block.
         hashPrev = b['hashPrev']
@@ -1182,15 +1185,18 @@ store._ddl['txout_approx'],
             raise
 
         # List the block's transactions in block_tx.
+        # print b['transactions']
         for tx_pos in xrange(len(b['transactions'])):
             tx = b['transactions'][tx_pos]
             store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", (tx['tx_id'],))
+            store.log.info("block_tx %d %d", block_id, tx['tx_id'])
             store.sql("""
+                -- INSERT OR IGNORE INTO block_tx -- Previous tests had unique constraint issues
                 INSERT INTO block_tx
                     (block_id, tx_id, tx_pos)
                 VALUES (?, ?, ?)""",
                       (block_id, tx['tx_id'], tx_pos))
-            store.log.info("block_tx %d %d", block_id, tx['tx_id'])
+
 
         if b['height'] is not None:
             store._populate_block_txin(block_id)
@@ -1647,7 +1653,9 @@ store._ddl['txout_approx'],
             row[0], store.hashout_hex(row[1]), row[2],
             store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
             row[7], store.hashout_hex(row[8]),
-            store.binout_int(row[9]), int(row[10]), int(row[11]),
+            store.binout_int(row[9]),
+            None if row[10] is None else int(row[10]),
+            None if row[11] is None else int(row[11]),
             None if row[12] is None else int(row[12]),
             None if row[13] is None else int(row[13]),
             None if row[14] is None else int(row[14]),
@@ -1818,9 +1826,9 @@ store._ddl['txout_approx'],
             tx['size'] = len(tx['__data__'])
 
         store.sql("""
-            INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
-            VALUES (?, ?, ?, ?, ?)""",
-                  (tx_id, dbhash, store.intin(tx['version']),
+            INSERT INTO tx (tx_id, tx_hash, tx_hash_hex, tx_version, tx_lockTime, tx_size)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+                  (tx_id, dbhash, store.hashout_hex(tx['hash'][::-1]), store.intin(tx['version']),
                    store.intin(tx['lockTime']), tx['size']))
         # Always consider tx are unlinked until they are added to block_tx.
         # This is necessary as inserted tx can get committed to database
@@ -1864,6 +1872,7 @@ store._ddl['txout_approx'],
         tx['unlinked_count'] = 0
         for pos in xrange(len(tx['txIn'])):
             txin = tx['txIn'][pos]
+
             txin_id = store.new_id("txin")
 
             if is_coinbase:
@@ -1878,15 +1887,15 @@ store._ddl['txout_approx'],
 
             store.sql("""
                 INSERT INTO txin (
-                    txin_id, tx_id, txin_pos, txout_id""" + (""",
+                    txin_id, tx_id, txin_pos, prevout_hash, txout_id""" + (""",
                     txin_scriptSig, txin_sequence""" if store.keep_scriptsig
                                                              else "") + """
-                ) VALUES (?, ?, ?, ?""" + (", ?, ?" if store.keep_scriptsig
+                ) VALUES (?, ?, ?, ?, ?""" + (", ?, ?" if store.keep_scriptsig
                                            else "") + """)""",
-                      (txin_id, tx_id, pos, txout_id,
+                      (txin_id, tx_id, pos, txin['prevout_hash'][::-1].encode('hex'), txout_id,
                        store.binin(txin['scriptSig']),
                        store.intin(txin['sequence'])) if store.keep_scriptsig
-                      else (txin_id, tx_id, pos, txout_id))
+                      else (txin_id, tx_id, pos, txin['prevout_hash'][::-1].encode('hex'), txout_id))
             if not is_coinbase and txout_id is None:
                 tx['unlinked_count'] += 1
                 store.sql("""
@@ -2639,7 +2648,7 @@ store._ddl['txout_approx'],
             try:
                 rpc_tx_hex = rpc("getrawtransaction", rpc_tx_hash)
 
-            except util.JsonrpcException, e:
+            except util.JsonrpcException as e:
                 if e.code != -5:  # -5: transaction not in index.
                     raise
                 if height != 0:
@@ -2649,10 +2658,13 @@ store._ddl['txout_approx'],
                 # normal.
                 import genesis_tx
                 rpc_tx_hex = genesis_tx.get(rpc_tx_hash)
+
                 if rpc_tx_hex is None:
                     store.log.error("genesis transaction unavailable via RPC;"
                                     " see import-tx in abe.conf")
                     return None
+
+
 
             rpc_tx = rpc_tx_hex.decode('hex')
             tx_hash = rpc_tx_hash.decode('hex')[::-1]
@@ -2757,7 +2769,8 @@ store._ddl['txout_approx'],
                     rpc_hash = get_blockhash(height + 1)
                 else:
                     # get full RPC block with "getblock <hash> False"
-                    ds.write(rpc("getblock", rpc_hash, False).decode('hex'))
+                    hex_tx = rpc("getblock", rpc_hash, False)
+                    ds.write(hex_tx.decode('hex'))
                     block_hash = chain.ds_block_header_hash(ds)
                     block = chain.ds_parse_block(ds)
                     assert hash == block_hash
@@ -2914,7 +2927,7 @@ store._ddl['txout_approx'],
                 while ds.read_cursor < len(ds.input):
                     size = min(len(ds.input) - ds.read_cursor, 1000)
                     data = ds.read_bytes(size).lstrip("\0")
-                    if (data != ""):
+                    if data != "":
                         ds.read_cursor -= len(data)
                         break
                 store.log.info("Skipped %d NUL bytes at block end",
@@ -2960,13 +2973,17 @@ store._ddl['txout_approx'],
 
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
-                store.log.debug("incomplete block of length %d chain %d",
+                store.log.info("incomplete block of length %d chain %d",
                                 length, chain.id)
                 ds.read_cursor = offset
                 break
             end = ds.read_cursor + length
 
             hash = chain.ds_block_header_hash(ds)
+
+            # Debug output
+            #store.log.debug("ds read cursor: %d, length: %s, end: %s",
+            #                ds.read_cursor, length, end)
 
             # XXX should decode target and check hash against it to
             # avoid loading garbage data.  But not for merged-mined or

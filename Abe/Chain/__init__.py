@@ -4,12 +4,12 @@
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 # Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
@@ -78,8 +78,9 @@ class BaseChain(object):
         d = chain.ds_parse_block_header(ds)
         d['transactions'] = []
         nTransactions = ds.read_compact_size()
-        for i in xrange(nTransactions):
+        for _ in xrange(nTransactions):
             d['transactions'].append(chain.ds_parse_transaction(ds))
+
         return d
 
     def ds_serialize_block(chain, ds, block):
@@ -136,7 +137,11 @@ class BaseChain(object):
             ds.input[ds.read_cursor : ds.read_cursor + 80])
 
     def transaction_hash(chain, binary_tx):
-        return util.double_sha256(binary_tx)
+        # Workaround, get hash from truncated transaction.
+        parsed = chain.ds_parse_transaction(util.str_to_ds(binary_tx))
+
+        #return util.double_sha256(binary_tx)
+        return parsed['hash_truncated']
 
     def merkle_hash(chain, hashes):
         return util.double_sha256(hashes)

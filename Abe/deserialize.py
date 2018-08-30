@@ -8,7 +8,7 @@ from base58 import public_key_to_bc_address, hash_160_to_bc_address
 import logging
 import socket
 import time
-from util import short_hex, long_hex
+from util import short_hex, long_hex, sha256
 import struct
 
 def parse_CAddress(vds):
@@ -80,21 +80,57 @@ def deserialize_TxOut(d, owner_keys=None):
 
 def parse_Transaction(vds, has_nTime=False):
   d = {}
+
+  # prepare clean, non-segwit transaction
+  d['__data_truncated__'] = ""
+
   start_pos = vds.read_cursor
+  pos_current = start_pos
   d['version'] = vds.read_int32()
+  d['__data_truncated__'] += vds.input[pos_current:vds.read_cursor]
+
   if has_nTime:
     d['nTime'] = vds.read_uint32()
+
+  # check if optional flag is present
+  segwit = ord(vds.input[vds.read_cursor]) == 0 and ord(vds.input[vds.read_cursor+1]) == 1
+  if segwit:
+    vds.read_cursor += 2
+
+  pos_current = vds.read_cursor
   n_vin = vds.read_compact_size()
   d['txIn'] = []
-  for i in xrange(n_vin):
+  for _ in xrange(n_vin):
     d['txIn'].append(parse_TxIn(vds))
   n_vout = vds.read_compact_size()
   d['txOut'] = []
-  for i in xrange(n_vout):
+  for _ in xrange(n_vout):
     d['txOut'].append(parse_TxOut(vds))
+  d['__data_truncated__'] += vds.input[pos_current:vds.read_cursor]
+
+  d['segwit_stack'] = []
+  if segwit:
+    # Get number of witnesses
+    segwit_count = vds.read_compact_size()
+    for _ in xrange(segwit_count):
+      d['segwit_stack'].append(parse_segwit(vds))
+
+  pos_current = vds.read_cursor
   d['lockTime'] = vds.read_uint32()
+  d['__data_truncated__'] += vds.input[pos_current:vds.read_cursor]
+
   d['__data__'] = vds.input[start_pos:vds.read_cursor]
+
+  # Print readable hash, reversed endian:
+  # print "hash plain:", sha256(sha256(d['__data_truncated__']))[::-1].encode('hex')
+  d['hash_truncated'] = sha256(sha256(d['__data_truncated__']))
+
   return d
+
+def parse_segwit(vds):
+  size = vds.read_compact_size()
+  data = vds.read_bytes(size)
+  return data
 
 def deserialize_Transaction(d, transaction_index=None, owner_keys=None, print_raw_tx=False):
   result = "%d tx in, %d out\n"%(len(d['txIn']), len(d['txOut']))
@@ -103,8 +139,8 @@ def deserialize_Transaction(d, transaction_index=None, owner_keys=None, print_ra
   for txOut in d['txOut']:
     result += deserialize_TxOut(txOut, owner_keys) + "\n"
   if print_raw_tx == True:
-      result += "Transaction hex value: " + d['__data__'].encode('hex') + "\n"
-  
+    result += "Transaction hex value: " + d['__data__'].encode('hex') + "\n"
+
   return result
 
 def parse_MerkleTx(vds):
@@ -186,14 +222,14 @@ def parse_BlockHeader(vds):
 def parse_Block(vds):
   d = parse_BlockHeader(vds)
   d['transactions'] = []
-#  if d['version'] & (1 << 8):
-#    d['auxpow'] = parse_AuxPow(vds)
+  #if d['version'] & (1 << 8):
+  #  d['auxpow'] = parse_AuxPow(vds)
   nTransactions = vds.read_compact_size()
   for i in xrange(nTransactions):
     d['transactions'].append(parse_Transaction(vds))
 
   return d
-  
+
 def deserialize_Block(d, print_raw_tx=False):
   result = "Time: "+time.ctime(d['nTime'])+" Nonce: "+str(d['nNonce'])
   result += "\nnBits: 0x"+hex(d['nBits'])
