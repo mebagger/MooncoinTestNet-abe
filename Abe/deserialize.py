@@ -110,10 +110,12 @@ def parse_Transaction(vds, has_nTime=False):
 
   d['segwit_stack'] = []
   if segwit:
-    # Get number of witnesses
-    segwit_count = vds.read_compact_size()
-    for _ in xrange(segwit_count):
-      d['segwit_stack'].append(parse_segwit(vds))
+    # If segwit flag is present, each txin is associated with a witness field
+    for _ in xrange(n_vin):
+      # read stack size for current txin, might be 0
+      stack_items = vds.read_compact_size()
+      for _ in xrange(stack_items):
+        d['segwit_stack'].append(parse_segwit(vds))
 
   pos_current = vds.read_cursor
   d['lockTime'] = vds.read_uint32()
