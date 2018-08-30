@@ -1,3 +1,16 @@
+Notice
+==============
+This is a fork of the [https://github.com/bitcoin-abe/bitcoin-abe] repository
+to make it compatible with newer versions of Bitcoin Core.
+
+Newer versions of Bitcoin Core contain segwit transactions, which do not work with the original bitcoin-abe,
+which seem to be no longer maintained.
+
+The purpose of this fork is not to cleanup the messy code, but to make it compatible with Bitcoin Core again.
+
+++++++++++++++++++++++++++++
+
+
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/bitcoin-abe/bitcoin-abe
 
