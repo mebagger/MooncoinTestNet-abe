@@ -20,8 +20,8 @@ class mooncointest(Sha256Chain):
     def __init__(chain, **kwargs):
         chain.name = 'test'
         chain.code3 = 'MOONT'
-        chain.address_version = '\x70'
-        chain.script_addr_vers = '\xc3'
+        chain.address_version = '\x71'
+        chain.script_addr_vers = '\xc4'
         chain.magic = '\xf3\xd2\xc8\xf1'
         Sha256Chain.__init__(chain, **kwargs)
 

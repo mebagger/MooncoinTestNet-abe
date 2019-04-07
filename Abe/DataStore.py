@@ -66,7 +66,7 @@ WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
     {"chain":"mooncointest",
-     "code3":"MOONT", "address_version":"\x70", "magic":"\xf3\xd2\xc8\xf1"},
+     "code3":"MOONT", "address_version":"\x71", "magic":"\xf3\xd2\xc8\xf1"},
 
    
     ]
